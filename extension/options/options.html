@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MAXSEC Settings</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>MAXSEC Settings</h1>
+      <label>
+        <input id="enabled" type="checkbox" />
+        Enable extension
+      </label>
+
+      <label>
+        Default compose mode
+        <select id="defaultMode">
+          <option value="plaintext">Plaintext</option>
+          <option value="encrypted">Encrypted</option>
+        </select>
+      </label>
+
+      <button id="save">Save</button>
+      <p id="status" aria-live="polite"></p>
+    </main>
+
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>
