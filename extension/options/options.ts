@@ -14,7 +14,7 @@ async function init(): Promise<void> {
 save.addEventListener('click', async () => {
   await saveSettings({
     enabled: enabled.checked,
-    defaultMode: (defaultMode.value as 'plaintext' | 'encrypted') ?? DEFAULT_SETTINGS.defaultMode,
+    defaultMode: (defaultMode.value as 'OFF' | 'READ' | 'SECURE') ?? DEFAULT_SETTINGS.defaultMode,
   });
 
   status.textContent = 'Saved';

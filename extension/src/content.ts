@@ -122,6 +122,20 @@ function setupSendInterception(): void {
     },
     true,
   );
+
+  document.addEventListener(
+    'keydown',
+    async (event) => {
+      if (event.key !== 'Enter' || event.shiftKey) return;
+      const composer = getComposer();
+      const target = event.target as HTMLElement | null;
+      if (!composer || !target) return;
+      if (target === composer || composer.contains(target)) {
+        await onBeforeSend();
+      }
+    },
+    true,
+  );
 }
 
 function ensureOverlay(): void {
@@ -133,7 +147,7 @@ function ensureOverlay(): void {
     onModeChange: async (nextMode) => {
       currentMode = nextMode;
       const settings = await loadSettings();
-      await saveSettings({ ...settings, defaultMode: nextMode.toLowerCase() as 'plaintext' | 'encrypted' });
+      await saveSettings({ ...settings, defaultMode: nextMode });
       updateOverlay({ mode: currentMode, fingerprint, verificationStatus, warning });
     },
     onVerify: () => {
@@ -167,8 +181,7 @@ async function bootstrap(): Promise<void> {
 
   const settings = await loadSettings();
   extensionEnabled = settings.enabled;
-  const mode = settings.defaultMode ?? 'plaintext';
-  currentMode = mode === 'encrypted' ? 'SECURE' : 'OFF';
+  currentMode = settings.defaultMode ?? 'OFF';
 
   if (!extensionEnabled) return;
 

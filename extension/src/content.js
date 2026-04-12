@@ -121,6 +121,20 @@ function setupSendInterception() {
     },
     true,
   );
+
+  document.addEventListener(
+    'keydown',
+    async (event) => {
+      if (event.key !== 'Enter' || event.shiftKey) return;
+      const composer = getComposer();
+      const target = event.target;
+      if (!composer || !(target instanceof HTMLElement)) return;
+      if (target === composer || composer.contains(target)) {
+        await onBeforeSend();
+      }
+    },
+    true,
+  );
 }
 
 function ensureOverlay() {
@@ -132,7 +146,7 @@ function ensureOverlay() {
     onModeChange: async (nextMode) => {
       currentMode = nextMode;
       const settings = await loadSettings();
-      await saveSettings({ ...settings, defaultMode: nextMode.toLowerCase() });
+      await saveSettings({ ...settings, defaultMode: nextMode });
       updateOverlay({ mode: currentMode, fingerprint, verificationStatus, warning });
     },
     onVerify: () => {
@@ -166,8 +180,7 @@ async function bootstrap() {
 
   const settings = await loadSettings();
   extensionEnabled = settings.enabled;
-  const mode = settings.defaultMode ?? 'plaintext';
-  currentMode = mode === 'encrypted' ? 'SECURE' : 'OFF';
+  currentMode = settings.defaultMode ?? 'OFF';
 
   if (!extensionEnabled) return;
 
