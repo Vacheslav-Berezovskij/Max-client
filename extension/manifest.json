@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MAXSEC Privacy Layer",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Optional in-chat encryption layer for MAX web client without backend dependencies.",
   "permissions": [
     "storage",
@@ -14,6 +14,16 @@
   "action": {
     "default_title": "MAXSEC",
     "default_popup": "popup/popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "maxsec@webmax.local",
+      "strict_min_version": "109.0",
+      "data_collection_permissions": {
+        "required": [],
+        "optional": []
+      }
+    }
   },
   "content_scripts": [
     {
