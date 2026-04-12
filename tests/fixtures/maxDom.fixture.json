@@ -1,0 +1,15 @@
+{
+  "selectors": {
+    "composer": "[contenteditable=\"true\"][role=\"textbox\"]",
+    "sendButton": "button[aria-label*=\"send\" i]",
+    "messageItem": "[data-message-id]"
+  },
+  "users": [
+    { "id": "alice", "deviceId": "alice-laptop" },
+    { "id": "bob", "deviceId": "bob-laptop" }
+  ],
+  "messages": [
+    { "type": "plaintext", "text": "hello" },
+    { "type": "encrypted", "text": "secret hi" }
+  ]
+}
