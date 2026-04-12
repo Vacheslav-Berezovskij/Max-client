@@ -1,6 +1,8 @@
 export type IdentityKeyPair = CryptoKeyPair;
+export type SigningIdentityKeyPair = CryptoKeyPair;
 
 const ECDH_CURVE = 'P-256';
+const ECDSA_CURVE = 'P-256';
 const AES_ALGO = 'AES-GCM';
 const AES_LENGTH = 256;
 const IV_LENGTH_BYTES = 12;
@@ -28,6 +30,29 @@ export function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function normalizePublicKeyBytes(input: CryptoKey | Uint8Array | ArrayBuffer | string): Promise<Uint8Array> {
+  if (typeof input === 'string') {
+    return base64ToBytes(input);
+  }
+
+  if (input instanceof Uint8Array) {
+    return input;
+  }
+
+  if (input instanceof ArrayBuffer) {
+    return new Uint8Array(input);
+  }
+
+  const exported = await getCrypto().subtle.exportKey('spki', input);
+  return new Uint8Array(exported);
+}
+
 export async function generateIdentityKeyPair(): Promise<IdentityKeyPair> {
   return getCrypto().subtle.generateKey(
     {
@@ -36,6 +61,20 @@ export async function generateIdentityKeyPair(): Promise<IdentityKeyPair> {
     },
     true,
     ['deriveBits'],
+  );
+}
+
+/**
+ * Long-term identity keys used to authenticate ECDH public keys.
+ */
+export async function generateIdentityKeys(): Promise<SigningIdentityKeyPair> {
+  return getCrypto().subtle.generateKey(
+    {
+      name: 'ECDSA',
+      namedCurve: ECDSA_CURVE,
+    },
+    true,
+    ['sign', 'verify'],
   );
 }
 
@@ -67,6 +106,48 @@ export async function importPublicKey(spkiBase64: string): Promise<CryptoKey> {
     true,
     [],
   );
+}
+
+export async function signPublicKey(
+  publicKey: CryptoKey | Uint8Array | ArrayBuffer | string,
+  identityPrivateKey: CryptoKey,
+): Promise<string> {
+  const bytes = await normalizePublicKeyBytes(publicKey);
+  const signature = await getCrypto().subtle.sign(
+    {
+      name: 'ECDSA',
+      hash: 'SHA-256',
+    },
+    identityPrivateKey,
+    bytes,
+  );
+
+  return bytesToBase64(new Uint8Array(signature));
+}
+
+export async function verifyPublicKeySignature(
+  publicKey: CryptoKey | Uint8Array | ArrayBuffer | string,
+  signatureBase64: string,
+  identityPublicKey: CryptoKey,
+): Promise<boolean> {
+  const bytes = await normalizePublicKeyBytes(publicKey);
+  const signature = base64ToBytes(signatureBase64);
+
+  return getCrypto().subtle.verify(
+    {
+      name: 'ECDSA',
+      hash: 'SHA-256',
+    },
+    identityPublicKey,
+    signature,
+    bytes,
+  );
+}
+
+export async function getFingerprint(identityPublicKey: CryptoKey | Uint8Array | ArrayBuffer | string): Promise<string> {
+  const bytes = await normalizePublicKeyBytes(identityPublicKey);
+  const digest = await getCrypto().subtle.digest('SHA-256', bytes);
+  return bytesToHex(new Uint8Array(digest));
 }
 
 /**

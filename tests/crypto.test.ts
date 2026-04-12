@@ -6,8 +6,12 @@ import {
   encryptMessage,
   exportPublicKey,
   generateIdentityKeyPair,
+  generateIdentityKeys,
   generateSessionKey,
+  getFingerprint,
   importPublicKey,
+  signPublicKey,
+  verifyPublicKeySignature,
 } from '../src/crypto.ts';
 
 test('encrypts and decrypts with a generated session key', async () => {
@@ -48,4 +52,36 @@ test('derives matching shared keys for both peers', async () => {
   const decrypted = await decryptMessage(encrypted, bobShared);
 
   assert.equal(decrypted, 'shared-secret-message');
+});
+
+test('signs and verifies exchanged public key using identity keys', async () => {
+  const signerIdentity = await generateIdentityKeys();
+  const senderEcdh = await generateIdentityKeyPair();
+
+  const signature = await signPublicKey(senderEcdh.publicKey, signerIdentity.privateKey);
+  const isValid = await verifyPublicKeySignature(senderEcdh.publicKey, signature, signerIdentity.publicKey);
+
+  assert.equal(isValid, true);
+});
+
+test('rejects signature if public key payload is tampered', async () => {
+  const signerIdentity = await generateIdentityKeys();
+  const originalKey = await generateIdentityKeyPair();
+  const tamperedKey = await generateIdentityKeyPair();
+
+  const signature = await signPublicKey(originalKey.publicKey, signerIdentity.privateKey);
+  const isValid = await verifyPublicKeySignature(tamperedKey.publicKey, signature, signerIdentity.publicKey);
+
+  assert.equal(isValid, false);
+});
+
+test('generates deterministic SHA-256 fingerprint hex for identity key', async () => {
+  const identity = await generateIdentityKeys();
+  const fingerprint1 = await getFingerprint(identity.publicKey);
+
+  const exported = await crypto.subtle.exportKey('spki', identity.publicKey);
+  const fingerprint2 = await getFingerprint(exported);
+
+  assert.match(fingerprint1, /^[0-9a-f]{64}$/);
+  assert.equal(fingerprint1, fingerprint2);
 });
