@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MAXSEC</title>
+    <style>
+      body { font-family: sans-serif; margin: 12px; width: 240px; }
+      .row { margin-bottom: 10px; }
+      select, button { width: 100%; padding: 6px; }
+      .muted { font-size: 12px; color: #666; }
+    </style>
+  </head>
+  <body>
+    <div class="row"><strong>MAXSEC</strong></div>
+    <div class="row">
+      <label for="mode">Режим</label>
+      <select id="mode">
+        <option value="OFF">OFF</option>
+        <option value="READ">READ</option>
+        <option value="SECURE">SECURE</option>
+      </select>
+    </div>
+    <div class="row">
+      <label><input id="enabled" type="checkbox" /> Включено</label>
+    </div>
+    <button id="save">Сохранить</button>
+    <div id="status" class="muted"></div>
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>
