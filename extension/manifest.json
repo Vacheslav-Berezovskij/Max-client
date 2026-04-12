@@ -3,7 +3,10 @@
   "name": "MAXSEC Privacy Layer",
   "version": "0.1.2",
   "description": "Optional in-chat encryption layer for MAX web client without backend dependencies.",
-  "permissions": ["storage"],
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
   "host_permissions": [
     "https://max.ru/*",
     "https://*.max.ru/*"
@@ -18,13 +21,17 @@
         "https://max.ru/*",
         "https://*.max.ru/*"
       ],
-      "js": ["src/content.js"],
+      "js": [
+        "src/content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/injected.js"],
+      "resources": [
+        "src/injected.js"
+      ],
       "matches": [
         "https://max.ru/*",
         "https://*.max.ru/*"

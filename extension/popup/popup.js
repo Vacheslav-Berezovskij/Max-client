@@ -3,6 +3,7 @@ import { loadSettings, saveSettings } from '../src/state.js';
 const mode = document.getElementById('mode');
 const enabled = document.getElementById('enabled');
 const save = document.getElementById('save');
+const openManual = document.getElementById('openManual');
 const status = document.getElementById('status');
 
 function normalizeMode(value) {
@@ -25,6 +26,10 @@ save.addEventListener('click', async () => {
   });
   status.textContent = 'Сохранено';
   setTimeout(() => (status.textContent = ''), 1200);
+});
+
+openManual.addEventListener('click', async () => {
+  await chrome.tabs.create({ url: chrome.runtime.getURL('manual/manual.html') });
 });
 
 void init();
