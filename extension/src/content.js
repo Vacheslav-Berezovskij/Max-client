@@ -2,10 +2,13 @@ import { DOM_SELECTORS, queryFirst } from './domSelectors.js';
 import { decryptFromTransport, encryptForTransport } from './transform.js';
 import { loadSettings, saveSettings } from './state.js';
 import { isEncryptedMessage } from './messageProtocol.js';
+import { createOverlay, injectOverlayStyles, updateOverlay } from './overlay.js';
 
-const EXTENSION_TAG = 'maxsec-extension';
-let currentMode = 'plaintext';
+let currentMode = 'OFF'; // OFF | READ | SECURE
 let extensionEnabled = true;
+let verificationStatus = 'unverified';
+let fingerprint = 'UNVERIFIED-PEER';
+let warning = '';
 
 function injectPageScript() {
   const script = document.createElement('script');
@@ -39,41 +42,37 @@ function setComposerText(composer, nextValue) {
   window.dispatchEvent(new CustomEvent('MAXSEC_SET_COMPOSER', { detail: { selector: primarySelector, value: nextValue } }));
 }
 
-function showBanner(message) {
-  let banner = document.getElementById('maxsec-banner');
-  if (!banner) {
-    banner = document.createElement('div');
-    banner.id = 'maxsec-banner';
-    banner.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;background:#1f2937;color:#fff;padding:8px 12px;border-radius:8px;font:12px/1.4 sans-serif;';
-    document.body.appendChild(banner);
-  }
-  banner.textContent = message;
-  setTimeout(() => banner?.remove(), 5000);
+function showKeyChangedWarning() {
+  warning = 'KEY CHANGED';
+  verificationStatus = 'unverified';
+  updateOverlay({ mode: currentMode, fingerprint, verificationStatus, warning });
 }
 
 async function onBeforeSend() {
-  if (!extensionEnabled || currentMode === 'plaintext') return;
+  if (!extensionEnabled || currentMode !== 'SECURE') return;
+
   const composer = getComposer();
-  if (!composer) {
-    showBanner('MAXSEC: composer not found. Sending plaintext.');
-    return;
-  }
+  if (!composer) return;
+
   const original = getComposerText(composer).trim();
   if (!original) return;
+
   try {
     const transformed = await encryptForTransport(original, { sender: 'local-user' });
     setComposerText(composer, transformed);
   } catch {
-    showBanner('MAXSEC: encryption failed. Message left in plaintext.');
+    // fail open
   }
 }
 
 function markDecrypted(node, text) {
   if (node.dataset.maxsecProcessed === '1') return;
   node.dataset.maxsecProcessed = '1';
+
   const badge = document.createElement('span');
   badge.textContent = ' 🔐';
   badge.style.opacity = '0.8';
+
   node.textContent = text;
   node.appendChild(badge);
 }
@@ -81,14 +80,23 @@ function markDecrypted(node, text) {
 async function processIncomingMessageNode(messageNode) {
   if (messageNode.dataset.maxsecScan === '1') return;
   messageNode.dataset.maxsecScan = '1';
+
   const textNode = queryFirst(DOM_SELECTORS.messageText, messageNode) ?? messageNode;
   const raw = textNode.textContent?.trim() ?? '';
-  if (!raw || !isEncryptedMessage(raw)) return;
-  const decrypted = await decryptFromTransport(raw);
-  if (!decrypted) {
-    messageNode.dataset.maxsecError = 'decrypt-failed';
+
+  if (!raw) return;
+
+  if (raw.includes('KEY CHANGED')) {
+    showKeyChangedWarning();
     return;
   }
+
+  if (!isEncryptedMessage(raw)) return;
+  if (currentMode === 'OFF') return;
+
+  const decrypted = await decryptFromTransport(raw);
+  if (!decrypted) return;
+
   markDecrypted(textNode, decrypted);
 }
 
@@ -98,62 +106,72 @@ async function scanIncomingMessages() {
     const nodes = document.querySelectorAll(selector);
     nodes.forEach((n) => seen.add(n));
   }
+
   await Promise.all(Array.from(seen).map((node) => processIncomingMessageNode(node)));
 }
 
-function ensureToggleUI() {
-  if (document.getElementById('maxsec-toggle')) return;
-  const composer = getComposer();
-  if (!composer || !composer.parentElement) return;
-
-  const wrap = document.createElement('div');
-  wrap.id = 'maxsec-toggle';
-  wrap.setAttribute(EXTENSION_TAG, '1');
-  wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin:4px 0;font:12px sans-serif;';
-
-  const label = document.createElement('label');
-  label.textContent = 'MAXSEC';
-  const select = document.createElement('select');
-  select.innerHTML = '<option value="plaintext">Plaintext</option><option value="encrypted">Encrypted</option>';
-  select.value = currentMode;
-  select.addEventListener('change', async () => {
-    currentMode = select.value;
-    const settings = await loadSettings();
-    await saveSettings({ ...settings, defaultMode: currentMode });
-  });
-
-  wrap.append(label, select);
-  composer.parentElement.insertBefore(wrap, composer);
+function setupSendInterception() {
+  document.addEventListener(
+    'click',
+    async (event) => {
+      const target = event.target;
+      const sendButton = getSendButton();
+      if (!target || !sendButton) return;
+      if (target === sendButton || sendButton.contains(target)) await onBeforeSend();
+    },
+    true,
+  );
 }
 
-function setupSendInterception() {
-  document.addEventListener('click', async (event) => {
-    const target = event.target;
-    const sendButton = getSendButton();
-    if (!target || !sendButton) return;
-    if (target === sendButton || sendButton.contains(target)) await onBeforeSend();
-  }, true);
+function ensureOverlay() {
+  injectOverlayStyles();
+  createOverlay({
+    mode: currentMode,
+    fingerprint,
+    verificationStatus,
+    onModeChange: async (nextMode) => {
+      currentMode = nextMode;
+      const settings = await loadSettings();
+      await saveSettings({ ...settings, defaultMode: nextMode.toLowerCase() });
+      updateOverlay({ mode: currentMode, fingerprint, verificationStatus, warning });
+    },
+    onVerify: () => {
+      verificationStatus = 'verified';
+      warning = '';
+      updateOverlay({ mode: currentMode, fingerprint, verificationStatus, warning });
+    },
+  });
+
+  updateOverlay({ mode: currentMode, fingerprint, verificationStatus, warning });
 }
 
 function setupDomObserver() {
   const observer = new MutationObserver(() => {
     try {
-      ensureToggleUI();
+      ensureOverlay();
       void scanIncomingMessages();
     } catch {
-      showBanner('MAXSEC: UI changed, running in passive mode.');
+      // passive fallback
     }
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
 }
 
 async function bootstrap() {
   injectPageScript();
+
   const settings = await loadSettings();
   extensionEnabled = settings.enabled;
-  currentMode = settings.defaultMode;
+  const mode = settings.defaultMode ?? 'plaintext';
+  currentMode = mode === 'encrypted' ? 'SECURE' : 'OFF';
+
   if (!extensionEnabled) return;
-  ensureToggleUI();
+
+  ensureOverlay();
   setupSendInterception();
   setupDomObserver();
   await scanIncomingMessages();
