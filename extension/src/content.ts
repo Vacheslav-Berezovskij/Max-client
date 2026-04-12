@@ -10,6 +10,14 @@ let verificationStatus: OverlayVerificationStatus = 'unverified';
 let fingerprint = 'UNVERIFIED-PEER';
 let warning = '';
 
+let bypassNextSend = false;
+let encryptingInFlight = false;
+
+function debugLog(message: string, extra?: unknown): void {
+  // eslint-disable-next-line no-console
+  console.debug(`[MAXSEC] ${message}`, extra ?? '');
+}
+
 function injectPageScript(): void {
   const script = document.createElement('script');
   script.src = chrome.runtime.getURL('src/injected.js');
@@ -43,27 +51,56 @@ function setComposerText(composer: HTMLElement, nextValue: string): void {
   window.dispatchEvent(new CustomEvent('MAXSEC_SET_COMPOSER', { detail: { selector: primarySelector, value: nextValue } }));
 }
 
+function triggerSingleSend(): void {
+  const sendButton = getSendButton();
+  if (sendButton) {
+    bypassNextSend = true;
+    sendButton.click();
+    setTimeout(() => {
+      bypassNextSend = false;
+    }, 0);
+  }
+}
+
+async function interceptBeforeSend(reason: 'click' | 'enter', event: Event): Promise<boolean> {
+  if (!extensionEnabled || currentMode !== 'SECURE') return false;
+  if (bypassNextSend || encryptingInFlight) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
+
+  const composer = getComposer();
+  if (!composer) return false;
+
+  const original = getComposerText(composer).trim();
+  if (!original) return false;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+
+  encryptingInFlight = true;
+  debugLog('interception happened', { reason, originalLength: original.length });
+
+  try {
+    debugLog('encryption runs', { reason });
+    const transformed = await encryptForTransport(original, { sender: 'local-user' });
+    setComposerText(composer, transformed);
+    triggerSingleSend();
+  } catch (err) {
+    debugLog('encryption failed, fallback to plaintext send', err);
+    triggerSingleSend();
+  } finally {
+    encryptingInFlight = false;
+  }
+
+  return true;
+}
+
 function showKeyChangedWarning(): void {
   warning = 'KEY CHANGED';
   verificationStatus = 'unverified';
   updateOverlay({ mode: currentMode, fingerprint, verificationStatus, warning });
-}
-
-async function onBeforeSend(): Promise<void> {
-  if (!extensionEnabled || currentMode !== 'SECURE') return;
-
-  const composer = getComposer();
-  if (!composer) return;
-
-  const original = getComposerText(composer).trim();
-  if (!original) return;
-
-  try {
-    const transformed = await encryptForTransport(original, { sender: 'local-user' });
-    setComposerText(composer, transformed);
-  } catch {
-    // fail open
-  }
 }
 
 function markDecrypted(node: HTMLElement, text: string): void {
@@ -118,7 +155,9 @@ function setupSendInterception(): void {
       const target = event.target as HTMLElement | null;
       const sendButton = getSendButton();
       if (!target || !sendButton) return;
-      if (target === sendButton || sendButton.contains(target)) await onBeforeSend();
+      if (target === sendButton || sendButton.contains(target)) {
+        await interceptBeforeSend('click', event);
+      }
     },
     true,
   );
@@ -131,7 +170,7 @@ function setupSendInterception(): void {
       const target = event.target as HTMLElement | null;
       if (!composer || !target) return;
       if (target === composer || composer.contains(target)) {
-        await onBeforeSend();
+        await interceptBeforeSend('enter', event);
       }
     },
     true,

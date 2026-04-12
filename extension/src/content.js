@@ -4,11 +4,19 @@ import { loadSettings, saveSettings } from './state.js';
 import { isEncryptedMessage } from './messageProtocol.js';
 import { createOverlay, injectOverlayStyles, updateOverlay } from './overlay.js';
 
-let currentMode = 'OFF'; // OFF | READ | SECURE
+let currentMode = 'OFF';
 let extensionEnabled = true;
 let verificationStatus = 'unverified';
 let fingerprint = 'UNVERIFIED-PEER';
 let warning = '';
+
+let bypassNextSend = false;
+let encryptingInFlight = false;
+
+function debugLog(message, extra) {
+  // eslint-disable-next-line no-console
+  console.debug(`[MAXSEC] ${message}`, extra ?? '');
+}
 
 function injectPageScript() {
   const script = document.createElement('script');
@@ -42,27 +50,56 @@ function setComposerText(composer, nextValue) {
   window.dispatchEvent(new CustomEvent('MAXSEC_SET_COMPOSER', { detail: { selector: primarySelector, value: nextValue } }));
 }
 
+function triggerSingleSend() {
+  const sendButton = getSendButton();
+  if (sendButton) {
+    bypassNextSend = true;
+    sendButton.click();
+    setTimeout(() => {
+      bypassNextSend = false;
+    }, 0);
+  }
+}
+
+async function interceptBeforeSend(reason, event) {
+  if (!extensionEnabled || currentMode !== 'SECURE') return false;
+  if (bypassNextSend || encryptingInFlight) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
+
+  const composer = getComposer();
+  if (!composer) return false;
+
+  const original = getComposerText(composer).trim();
+  if (!original) return false;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+
+  encryptingInFlight = true;
+  debugLog('interception happened', { reason, originalLength: original.length });
+
+  try {
+    debugLog('encryption runs', { reason });
+    const transformed = await encryptForTransport(original, { sender: 'local-user' });
+    setComposerText(composer, transformed);
+    triggerSingleSend();
+  } catch (err) {
+    debugLog('encryption failed, fallback to plaintext send', err);
+    triggerSingleSend();
+  } finally {
+    encryptingInFlight = false;
+  }
+
+  return true;
+}
+
 function showKeyChangedWarning() {
   warning = 'KEY CHANGED';
   verificationStatus = 'unverified';
   updateOverlay({ mode: currentMode, fingerprint, verificationStatus, warning });
-}
-
-async function onBeforeSend() {
-  if (!extensionEnabled || currentMode !== 'SECURE') return;
-
-  const composer = getComposer();
-  if (!composer) return;
-
-  const original = getComposerText(composer).trim();
-  if (!original) return;
-
-  try {
-    const transformed = await encryptForTransport(original, { sender: 'local-user' });
-    setComposerText(composer, transformed);
-  } catch {
-    // fail open
-  }
 }
 
 function markDecrypted(node, text) {
@@ -117,7 +154,9 @@ function setupSendInterception() {
       const target = event.target;
       const sendButton = getSendButton();
       if (!target || !sendButton) return;
-      if (target === sendButton || sendButton.contains(target)) await onBeforeSend();
+      if (target === sendButton || sendButton.contains(target)) {
+        await interceptBeforeSend('click', event);
+      }
     },
     true,
   );
@@ -130,7 +169,7 @@ function setupSendInterception() {
       const target = event.target;
       if (!composer || !(target instanceof HTMLElement)) return;
       if (target === composer || composer.contains(target)) {
-        await onBeforeSend();
+        await interceptBeforeSend('enter', event);
       }
     },
     true,
